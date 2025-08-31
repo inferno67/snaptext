@@ -20,7 +20,7 @@ root.configure(bg="#121212")  # Dark background
 # Text box
 text_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, font=("Arial", 12),
                                      bg="#1e1e1e", fg="#ffffff", bd=2, relief="sunken",
-                                     insertbackground="white")  # cursor white
+                                     insertbackground="white")
 text_box.pack(expand=True, fill="both", padx=15, pady=15)
 
 # Available languages
@@ -34,7 +34,7 @@ LANGUAGES = {
 selected_lang = tk.StringVar(root)
 selected_lang.set("English")
 
-# Dropdown menu for language selection
+# Dropdown menu
 lang_menu = tk.OptionMenu(root, selected_lang, *LANGUAGES.keys())
 lang_menu.config(bg="#1e1e1e", fg="#ffffff", width=15, highlightthickness=0)
 lang_menu["menu"].config(bg="#1e1e1e", fg="#ffffff")
@@ -62,13 +62,15 @@ def run_ocr(image_path):
             pass
     return text.strip()
 
-# Upload image
-def upload_image():
-    file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp *.tiff *.tif")])
-    if file_path:
-        text = run_ocr(file_path)
+# Upload multiple images
+def upload_images():
+    file_paths = filedialog.askopenfilenames(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp *.tiff *.tif")])
+    if file_paths:
+        full_text = ""
+        for file_path in file_paths:
+            full_text += run_ocr(file_path) + "\n\n"
         text_box.delete(1.0, tk.END)
-        text_box.insert(tk.END, text)
+        text_box.insert(tk.END, full_text.strip())
 
 # Save as .txt
 def save_text():
@@ -113,7 +115,7 @@ top_bar.pack(pady=5)
 
 btn_font = ("Helvetica", 11, "bold")  # Bold font for buttons
 
-btn_upload = tk.Button(top_bar, text="Select Image", command=upload_image,
+btn_upload = tk.Button(top_bar, text="Select Images", command=upload_images,
                        width=18, bg="white", fg="black", font=btn_font,
                        activebackground="#e0e0e0", relief="raised", bd=2)
 btn_upload.grid(row=0, column=0, padx=6)
