@@ -40,17 +40,34 @@ lang_menu.config(bg="#1e1e1e", fg="#ffffff", width=15, highlightthickness=0)
 lang_menu["menu"].config(bg="#1e1e1e", fg="#ffffff")
 lang_menu.pack(pady=5)
 
-# OCR function
+# Step 4: Improved OCR function with preprocessing
 def run_ocr(image_path):
     if not os.path.exists(image_path):
         return "❌ File not found!"
     img = cv2.imread(image_path)
     if img is None:
         return "❌ Unable to read image!"
+    
+    # Grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+    
+    # Resize small images
+    height, width = gray.shape
+    if width < 800:
+        scale = 800 / width
+        gray = cv2.resize(gray, (int(width*scale), int(height*scale)), interpolation=cv2.INTER_LINEAR)
+    
+    # Remove noise
+    gray = cv2.medianBlur(gray, 3)
+    
+    # Adaptive thresholding
+    thresh = cv2.adaptiveThreshold(gray, 255,
+                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 11, 2)
+    
     temp_file = "temp_snaptext_ocr.png"
     cv2.imwrite(temp_file, thresh)
+    
     try:
         text = pytesseract.image_to_string(Image.open(temp_file), lang=LANGUAGES[selected_lang.get()])
     except Exception as e:
@@ -113,7 +130,7 @@ def save_pdf():
 top_bar = tk.Frame(root, bg="#1e1e1e", pady=5)
 top_bar.pack(pady=5)
 
-btn_font = ("Helvetica", 11, "bold")  # Bold font for buttons
+btn_font = ("Helvetica", 11, "bold")  # Bold font
 
 btn_upload = tk.Button(top_bar, text="Select Images", command=upload_images,
                        width=18, bg="white", fg="black", font=btn_font,
