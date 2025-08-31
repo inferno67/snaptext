@@ -1,13 +1,16 @@
-# 🖼️ Screenshot to Text (OCR Tool)
+# 🖼️ SnapText OCR Tool
 
-A simple Python tool that extracts text from images (screenshots, documents, photos) using **OCR (Tesseract)**.
+Extract text from screenshots and images using **OCR (Optical Character Recognition)** in Python.  
+Supports both **terminal** and **drag & drop GUI** versions.
 
 ---
 
 ## 🚀 Features
 - Extract text from any image
-- Supports `.png`, `.jpg`, `.jpeg`, and more
+- Supports `.png`, `.jpg`, `.jpeg`, `.bmp`
 - Lightweight & beginner-friendly
+- Drag & drop GUI for easy use
+- Save extracted text to `.txt`
 
 ---
 
@@ -15,11 +18,11 @@ A simple Python tool that extracts text from images (screenshots, documents, pho
 
 1. Clone this repo:
 ```bash
-git clone https://github.com/your-username/ocr-tool.git
-cd ocr-tool
+git clone https://github.com/your-username/snaptext.git
+cd snaptext
 ```
 
-2. Install dependencies:
+2. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -35,7 +38,7 @@ sudo apt install tesseract-ocr
 brew install tesseract
 ```
 
-4. (Windows only) Set the Tesseract path in `ocr_tool.py` if needed:
+4. (Windows only) Set Tesseract path in `ocr_tool.py` or `ocr_gui.py` if needed:
 ```python
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 ```
@@ -44,14 +47,19 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tessera
 
 ## ▶️ Usage
 
-Run the script with an image file:
+### Terminal Version
 ```bash
 python ocr_tool.py example.png
 ```
+- Output is printed in the terminal.
 
-Output:
+### GUI Version
+```bash
+python ocr_gui.py
 ```
-📄 Extracted Text:
+- GUI window opens.
+- Click **Select Image** → choose an image.  
+- OCR text appears in the box.  
+- Click **Save Text as .txt** to save output.
 
-Hello, this text came from an image!
-```
+---
