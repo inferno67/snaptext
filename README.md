@@ -84,7 +84,7 @@ Partial screen OCR → click Partial OCR.
 
 Hotkey screenshot OCR → press Ctrl+Shift+S.
 
-⚡ Notes
+# ⚡ Notes
 Make sure Tesseract is installed and correctly added to your system PATH.
 
 For best results, use high-resolution images.
