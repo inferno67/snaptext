@@ -8,7 +8,7 @@ import os
 from fpdf import FPDF
 import threading
 
-# ---------- Clipboard Auto-Copy (Step 1) ----------
+# ---------- Clipboard Auto-Copy ----------
 try:
     import pyperclip # type: ignore
     clipboard_available = True
@@ -20,8 +20,8 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tessera
 
 # ---------- Main Window ----------
 root = tk.Tk()
-root.title("SnapText – OCR Enhanced Accuracy")
-root.geometry("800x600")
+root.title("SnapText – OCR Multi-language")
+root.geometry("900x600")
 root.state('zoomed')
 root.resizable(True, True)
 root.configure(bg="#121212")
@@ -50,15 +50,31 @@ LANGUAGES = {
     "French": "fra",
     "German": "deu"
 }
-selected_lang = tk.StringVar(root)
-selected_lang.set("English")
+selected_langs = []
 
-lang_menu = tk.OptionMenu(root, selected_lang, *LANGUAGES.keys())
-lang_menu.config(bg="#1e1e1e", fg="#ffffff", width=15, highlightthickness=0)
-lang_menu["menu"].config(bg="#1e1e1e", fg="#ffffff")
-lang_menu.pack(pady=5)
+def toggle_lang(lang, var):
+    if var.get():
+        if lang not in selected_langs:
+            selected_langs.append(lang)
+    else:
+        if lang in selected_langs:
+            selected_langs.remove(lang)
 
-# ---------- OCR Function with enhanced preprocessing (Step 2) ----------
+lang_frame = tk.Frame(root, bg="#1e1e1e")
+lang_frame.pack(pady=5)
+lang_vars = {}
+for i, lang in enumerate(LANGUAGES.keys()):
+    var = tk.BooleanVar()
+    chk = tk.Checkbutton(lang_frame, text=lang, variable=var, bg="#1e1e1e", fg="#ffffff",
+                         selectcolor="#444444", activebackground="#1e1e1e",
+                         command=lambda l=lang, v=var: toggle_lang(l,v))
+    chk.grid(row=0, column=i, padx=5)
+    lang_vars[lang] = var
+    if lang == "English":  # default selected
+        var.set(True)
+        selected_langs.append(lang)
+
+# ---------- OCR Function with multi-language support ----------
 def run_ocr(image_path):
     if not os.path.exists(image_path):
         return "❌ File not found!"
@@ -72,21 +88,15 @@ def run_ocr(image_path):
         scale = 1200 / w
         img = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_LINEAR)
 
-    # Convert to grayscale
+    # Grayscale + CLAHE + Noise + Sharpen
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # CLAHE contrast enhancement
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     gray = clahe.apply(gray)
-
-    # Noise removal
     gray = cv2.medianBlur(gray, 3)
-
-    # Sharpening
     kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
     gray = cv2.filter2D(gray, -1, kernel)
 
-    # ---------- Special Font Preprocessing ----------
+    # Special font preprocessing
     _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     kernel_morph = np.ones((2,2), np.uint8)
     gray = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel_morph)
@@ -96,18 +106,19 @@ def run_ocr(image_path):
     cv2.imwrite(temp_file, gray)
 
     try:
-        custom_config = f'-l {LANGUAGES[selected_lang.get()]} --psm 6'
+        lang_codes = '+'.join([LANGUAGES[l] for l in selected_langs]) if selected_langs else 'eng'
+        custom_config = f'-l {lang_codes} --psm 6'
         text = pytesseract.image_to_string(Image.open(temp_file), config=custom_config)
     except Exception as e:
         text = f"❌ OCR error: {e}"
     finally:
         try:
             os.remove(temp_file)
-        except Exception:
+        except:
             pass
     return text.strip()
 
-# ---------- Multi-Image Processing with Auto-Copy ----------
+# ---------- Multi-Image Processing ----------
 def process_files(file_paths):
     full_text = ""
     total = len(file_paths)
@@ -117,16 +128,15 @@ def process_files(file_paths):
         root.update_idletasks()
         full_text += run_ocr(file_path) + "\n\n"
 
-    # Display text in textbox
     text_box.delete(1.0, tk.END)
     text_box.insert(tk.END, full_text.strip())
 
-    # Auto-copy entire OCR result to clipboard
+    # Auto-copy
     if clipboard_available:
         try:
             pyperclip.copy(full_text.strip()) # type: ignore
-        except Exception as e:
-            messagebox.showwarning("Clipboard Error", f"Failed to copy to clipboard:\n{e}")
+        except:
+            pass
 
     status_var.set("OCR completed!")
     progress["value"] = 0
@@ -136,7 +146,7 @@ def upload_images():
     if file_paths:
         threading.Thread(target=process_files, args=(file_paths,)).start()
 
-# ---------- Step 3: Real-time Screenshot OCR ----------
+# ---------- Screenshot OCR ----------
 def capture_screenshot():
     status_var.set("Capturing screenshot...")
     root.update_idletasks()
