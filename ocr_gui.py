@@ -10,7 +10,7 @@ import threading
 
 # ---------- Clipboard Auto-Copy ----------
 try:
-    import pyperclip # type: ignore
+    import pyperclip
     clipboard_available = True
 except ImportError:
     clipboard_available = False
@@ -20,8 +20,8 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tessera
 
 # ---------- Main Window ----------
 root = tk.Tk()
-root.title("SnapText – OCR Multi-language")
-root.geometry("900x600")
+root.title("SnapText – OCR Enhanced")
+root.geometry("1000x650")
 root.state('zoomed')
 root.resizable(True, True)
 root.configure(bg="#121212")
@@ -70,11 +70,23 @@ for i, lang in enumerate(LANGUAGES.keys()):
                          command=lambda l=lang, v=var: toggle_lang(l,v))
     chk.grid(row=0, column=i, padx=5)
     lang_vars[lang] = var
-    if lang == "English":  # default selected
+    if lang == "English":
         var.set(True)
         selected_langs.append(lang)
 
-# ---------- OCR Function with multi-language support ----------
+# ---------- Preprocessing Options ----------
+pre_frame = tk.Frame(root, bg="#1e1e1e")
+pre_frame.pack(pady=5)
+pre_vars = {}
+pre_options = ["Grayscale", "CLAHE", "Noise Removal", "Sharpening", "Adaptive Thresholding"]
+for i, opt in enumerate(pre_options):
+    var = tk.BooleanVar(value=True)
+    chk = tk.Checkbutton(pre_frame, text=opt, variable=var, bg="#1e1e1e", fg="#ffffff",
+                         selectcolor="#444444", activebackground="#1e1e1e")
+    chk.grid(row=0, column=i, padx=5)
+    pre_vars[opt] = var
+
+# ---------- OCR Function ----------
 def run_ocr(image_path):
     if not os.path.exists(image_path):
         return "❌ File not found!"
@@ -82,26 +94,25 @@ def run_ocr(image_path):
     if img is None:
         return "❌ Unable to read image!"
 
-    # Resize small images
     h, w = img.shape[:2]
     if w < 1200:
         scale = 1200 / w
         img = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_LINEAR)
 
-    # Grayscale + CLAHE + Noise + Sharpen
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    gray = clahe.apply(gray)
-    gray = cv2.medianBlur(gray, 3)
-    kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
-    gray = cv2.filter2D(gray, -1, kernel)
-
-    # Special font preprocessing
-    _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    kernel_morph = np.ones((2,2), np.uint8)
-    gray = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel_morph)
-    gray = cv2.dilate(gray, kernel_morph, iterations=1)
-
+    gray = img.copy()
+    if pre_vars["Grayscale"].get():
+        gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+    if pre_vars["CLAHE"].get():
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        gray = clahe.apply(gray)
+    if pre_vars["Noise Removal"].get():
+        gray = cv2.medianBlur(gray, 3)
+    if pre_vars["Sharpening"].get():
+        kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
+        gray = cv2.filter2D(gray, -1, kernel)
+    if pre_vars["Adaptive Thresholding"].get():
+        gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                     cv2.THRESH_BINARY, 11, 2)
     temp_file = "temp_snaptext_ocr.png"
     cv2.imwrite(temp_file, gray)
 
@@ -131,10 +142,9 @@ def process_files(file_paths):
     text_box.delete(1.0, tk.END)
     text_box.insert(tk.END, full_text.strip())
 
-    # Auto-copy
     if clipboard_available:
         try:
-            pyperclip.copy(full_text.strip()) # type: ignore
+            pyperclip.copy(full_text.strip())
         except:
             pass
 
