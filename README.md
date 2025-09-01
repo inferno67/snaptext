@@ -1,4 +1,4 @@
-# 🖼️ SnapText OCR Tool
+# 🖼️ SnapText Ultimate OCR Tool
 
 Extract text from screenshots and images using **OCR (Optical Character Recognition)** in Python.  
 Supports both **terminal** and **drag & drop GUI** versions with **enhanced text extraction**.
@@ -17,6 +17,11 @@ Supports both **terminal** and **drag & drop GUI** versions with **enhanced text
 - Save extracted text to `.txt` or `.pdf`
 - Lightweight & beginner-friendly GUI
 - Dark mode GUI with white buttons for readability
+- Auto-copy OCR text to clipboard (optional)
+- OCR History to track previous extractions
+- Real-time screenshot OCR
+- Partial screen OCR
+- Hotkey screenshot OCR (`Ctrl+Shift+S`)
 
 ---
 
@@ -27,49 +32,63 @@ Supports both **terminal** and **drag & drop GUI** versions with **enhanced text
 git clone https://github.com/your-username/snaptext.git
 cd snaptext
 ```
-2. Install Python dependencies:
-```bash
-pip install -r requirements.txt
-```
-3. Install **Tesseract OCR**:
+Install Python dependencies:
 
-- Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
-- Linux:
+```bash
+pip install pillow pytesseract opencv-python fpdf numpy pyperclip tkinterdnd2 mss keyboard
+```
+Install Tesseract OCR:
+
+Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+
+Linux:
 ```bash
 sudo apt install tesseract-ocr
 ```
-- macOS (Homebrew):
+macOS (Homebrew):
 ```bash
- brew install tesseract
+brew install tesseract
 ```
-4. (Windows only) Set Tesseract path in `ocr_gui.py` if needed:
+(Windows only) Set Tesseract path in ocr_gui.py if needed:
 ```bash
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 ```
----
-
-## ▶️ Usage
-
-### Terminal Version
+▶️ Usage
+Terminal Version
 ```bash
 python ocr_tool.py example.png
 ```
-- Output is printed in the terminal.
+Output is printed in the terminal.
 
-### GUI Version
+GUI Version
 ```bash
 python ocr_gui.py
 ```
-- GUI window opens.
-- Select **language** from dropdown (optional).
-- Click **Select Images** → choose one or multiple images.
-- Drag & drop images directly into the text box (if `tkinterdnd2` installed).
-- OCR text appears in the box.
-- Click **Save Text as .txt** or **Save as .pdf** to save output.
+GUI window opens.
 
----
+Select language(s) from the checkboxes.
 
-## ⚡ Notes
-- Make sure Tesseract is installed and correctly added to your system PATH.
-- For best results, use high-resolution images.
-- Multi-language OCR requires the corresponding Tesseract language files.
+Click Select Images → choose one or multiple images.
+
+Drag & drop images directly into the text box (if tkinterdnd2 installed).
+
+OCR text appears in the box.
+
+Save Text as .txt or .pdf.
+
+Auto-copy feature copies text to clipboard automatically (if pyperclip installed).
+
+Real time screenshot OCR → click Screenshot OCR.
+
+Partial screen OCR → click Partial OCR.
+
+Hotkey screenshot OCR → press Ctrl+Shift+S.
+
+⚡ Notes
+Make sure Tesseract is installed and correctly added to your system PATH.
+
+For best results, use high-resolution images.
+
+Multi-language OCR requires the corresponding Tesseract language files.
+
+Preprocessing options (Grayscale, CLAHE, Noise Removal, Sharpening, Adaptive Thresholding) can be customized and saved as presets.

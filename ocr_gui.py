@@ -7,23 +7,33 @@ import numpy as np
 import os
 from fpdf import FPDF
 import threading
+import json
 
-# ---------- Clipboard Auto-Copy ----------
+# Optional libraries
 try:
     import pyperclip
     clipboard_available = True
 except ImportError:
     clipboard_available = False
 
+try:
+    import mss
+except ImportError:
+    mss = None
+
+try:
+    import keyboard
+except ImportError:
+    keyboard = None
+
 # ---------- Tesseract Path ----------
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # ---------- Main Window ----------
 root = tk.Tk()
-root.title("SnapText – OCR Enhanced")
+root.title("SnapText Ultimate OCR")
 root.geometry("1000x650")
 root.state('zoomed')
-root.resizable(True, True)
 root.configure(bg="#121212")
 
 # ---------- Text Box ----------
@@ -32,13 +42,25 @@ text_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, font=("Arial", 12),
                                      insertbackground="white")
 text_box.pack(expand=True, fill="both", padx=15, pady=(15,5))
 
-# ---------- Status Bar ----------
+# ---------- OCR History ----------
+ocr_history = []
+
+history_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=8,
+                                        bg="#1e1e1e", fg="#ffffff", font=("Arial",10))
+history_box.pack(fill="x", padx=15, pady=(0,10))
+
+def add_to_history(text):
+    global ocr_history
+    ocr_history.append(text)
+    history_box.insert(tk.END, f"{len(ocr_history)}. {text[:100]}...\n")
+    history_box.yview(tk.END)
+
+# ---------- Status & Progress ----------
 status_var = tk.StringVar()
 status_var.set("Ready")
 status_bar = tk.Label(root, textvariable=status_var, bg="#1e1e1e", fg="#ffffff", anchor="w", font=("Helvetica",10))
 status_bar.pack(fill="x", padx=15, pady=(0,5))
 
-# ---------- Progress Bar ----------
 progress = ttk.Progressbar(root, orient="horizontal", length=400, mode="determinate")
 progress.pack(pady=(0,10))
 
@@ -86,6 +108,24 @@ for i, opt in enumerate(pre_options):
     chk.grid(row=0, column=i, padx=5)
     pre_vars[opt] = var
 
+# ---------- Load/Save Preprocessing Presets ----------
+PRESET_FILE = "preprocessing_presets.json"
+
+def save_presets():
+    data = {k: v.get() for k,v in pre_vars.items()}
+    with open(PRESET_FILE, "w") as f:
+        json.dump(data, f)
+    messagebox.showinfo("Saved", "Preprocessing preset saved!")
+
+def load_presets():
+    if os.path.exists(PRESET_FILE):
+        with open(PRESET_FILE, "r") as f:
+            data = json.load(f)
+        for k,v in pre_vars.items():
+            if k in data:
+                v.set(data[k])
+        messagebox.showinfo("Loaded", "Preprocessing preset loaded!")
+
 # ---------- OCR Function ----------
 def run_ocr(image_path):
     if not os.path.exists(image_path):
@@ -113,6 +153,7 @@ def run_ocr(image_path):
     if pre_vars["Adaptive Thresholding"].get():
         gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY, 11, 2)
+
     temp_file = "temp_snaptext_ocr.png"
     cv2.imwrite(temp_file, gray)
 
@@ -129,7 +170,7 @@ def run_ocr(image_path):
             pass
     return text.strip()
 
-# ---------- Multi-Image Processing ----------
+# ---------- Multi-Image OCR ----------
 def process_files(file_paths):
     full_text = ""
     total = len(file_paths)
@@ -142,9 +183,11 @@ def process_files(file_paths):
     text_box.delete(1.0, tk.END)
     text_box.insert(tk.END, full_text.strip())
 
+    add_to_history(full_text.strip())
+
     if clipboard_available:
         try:
-            pyperclip.copy(full_text.strip())
+            pyperclip.copy(full_text.strip()) # type: ignore
         except:
             pass
 
@@ -169,6 +212,22 @@ def capture_screenshot():
     except:
         pass
     status_var.set("Screenshot OCR completed!")
+
+# ---------- Partial Screen OCR ----------
+def partial_ocr():
+    if mss is None:
+        messagebox.showwarning("Warning", "mss library not installed!")
+        return
+    with mss.mss() as sct:
+        bbox = sct.monitors[1]  # full screen; user can adjust
+        img = np.array(sct.grab(bbox))
+        temp_file = "temp_partial.png"
+        cv2.imwrite(temp_file, cv2.cvtColor(img, cv2.COLOR_RGBA2BGR))
+    process_files([temp_file])
+    try:
+        os.remove(temp_file)
+    except:
+        pass
 
 # ---------- Drag & Drop ----------
 def drop(event):
@@ -223,26 +282,28 @@ top_bar = tk.Frame(root, bg="#1e1e1e", pady=5)
 top_bar.pack(pady=5)
 
 btn_font = ("Helvetica", 11, "bold")
+btn_bg, btn_fg = "white", "black"
 
-btn_upload = tk.Button(top_bar, text="Select Images", command=upload_images,
-                       width=18, bg="white", fg="black", font=btn_font,
-                       activebackground="#e0e0e0", relief="raised", bd=2)
-btn_upload.grid(row=0, column=0, padx=6)
+buttons = [
+    ("Select Images", upload_images),
+    ("Save as .txt", save_text),
+    ("Save as .pdf", save_pdf),
+    ("Screenshot OCR", capture_screenshot),
+    ("Partial OCR", partial_ocr),
+    ("Save Preset", save_presets),
+    ("Load Preset", load_presets)
+]
 
-btn_screenshot = tk.Button(top_bar, text="Capture Screenshot", command=capture_screenshot,
-                           width=18, bg="white", fg="black", font=btn_font,
-                           activebackground="#e0e0e0", relief="raised", bd=2)
-btn_screenshot.grid(row=0, column=1, padx=6)
+for i, (text, func) in enumerate(buttons):
+    b = tk.Button(top_bar, text=text, command=func, width=18, bg=btn_bg, fg=btn_fg,
+                  font=btn_font, activebackground="#e0e0e0", relief="raised", bd=2)
+    b.grid(row=0, column=i, padx=4)
 
-btn_save_txt = tk.Button(top_bar, text="Save as .txt", command=save_text,
-                         width=18, bg="white", fg="black", font=btn_font,
-                         activebackground="#e0e0e0", relief="raised", bd=2)
-btn_save_txt.grid(row=0, column=2, padx=6)
-
-btn_save_pdf = tk.Button(top_bar, text="Save as .pdf", command=save_pdf,
-                         width=18, bg="white", fg="black", font=btn_font,
-                         activebackground="#e0e0e0", relief="raised", bd=2)
-btn_save_pdf.grid(row=0, column=3, padx=6)
+# ---------- Global Hotkey for Screenshot OCR ----------
+if keyboard:
+    def hotkey_screenshot():
+        capture_screenshot()
+    threading.Thread(target=lambda: keyboard.add_hotkey("ctrl+shift+s", hotkey_screenshot)).start() # type: ignore
 
 # ---------- Run GUI ----------
 root.mainloop()
