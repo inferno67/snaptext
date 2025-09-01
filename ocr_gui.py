@@ -8,6 +8,13 @@ import os
 from fpdf import FPDF
 import threading
 
+# ---------- Clipboard Auto-Copy (Step 1) ----------
+try:
+    import pyperclip
+    clipboard_available = True
+except ImportError:
+    clipboard_available = False
+
 # ---------- Tesseract Path ----------
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -103,7 +110,7 @@ def run_ocr(image_path):
             pass
     return text.strip()
 
-# ---------- Multi-Image Processing ----------
+# ---------- Multi-Image Processing with Auto-Copy ----------
 def process_files(file_paths):
     full_text = ""
     total = len(file_paths)
@@ -112,9 +119,18 @@ def process_files(file_paths):
         status_var.set(f"Processing {i}/{total}: {os.path.basename(file_path)}")
         root.update_idletasks()
         full_text += run_ocr(file_path) + "\n\n"
-        progress["value"] = i
+
+    # Display text in textbox
     text_box.delete(1.0, tk.END)
     text_box.insert(tk.END, full_text.strip())
+
+    # ✅ Auto-copy entire OCR result to clipboard safely
+    if clipboard_available:
+        try:
+            pyperclip.copy(full_text.strip())
+        except Exception as e:
+            messagebox.showwarning("Clipboard Error", f"Failed to copy to clipboard:\n{e}")
+
     status_var.set("OCR completed!")
     progress["value"] = 0
 
