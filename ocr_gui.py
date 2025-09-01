@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from PIL import Image
+from PIL import Image, ImageGrab
 import pytesseract
 import cv2
 import numpy as np
@@ -10,7 +10,7 @@ import threading
 
 # ---------- Clipboard Auto-Copy (Step 1) ----------
 try:
-    import pyperclip
+    import pyperclip # type: ignore
     clipboard_available = True
 except ImportError:
     clipboard_available = False
@@ -58,7 +58,7 @@ lang_menu.config(bg="#1e1e1e", fg="#ffffff", width=15, highlightthickness=0)
 lang_menu["menu"].config(bg="#1e1e1e", fg="#ffffff")
 lang_menu.pack(pady=5)
 
-# ---------- OCR Function with maximum preprocessing ----------
+# ---------- OCR Function with enhanced preprocessing (Step 2) ----------
 def run_ocr(image_path):
     if not os.path.exists(image_path):
         return "❌ File not found!"
@@ -86,14 +86,11 @@ def run_ocr(image_path):
     kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
     gray = cv2.filter2D(gray, -1, kernel)
 
-    # Adaptive thresholding
-    gray = cv2.adaptiveThreshold(gray, 255,
-                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                 cv2.THRESH_BINARY, 11, 2)
-
-    # Dilation to strengthen faint text
-    kernel_d = np.ones((2,2), np.uint8)
-    gray = cv2.dilate(gray, kernel_d, iterations=1)
+    # ---------- Special Font Preprocessing ----------
+    _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    kernel_morph = np.ones((2,2), np.uint8)
+    gray = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel_morph)
+    gray = cv2.dilate(gray, kernel_morph, iterations=1)
 
     temp_file = "temp_snaptext_ocr.png"
     cv2.imwrite(temp_file, gray)
@@ -124,10 +121,10 @@ def process_files(file_paths):
     text_box.delete(1.0, tk.END)
     text_box.insert(tk.END, full_text.strip())
 
-    # ✅ Auto-copy entire OCR result to clipboard safely
+    # Auto-copy entire OCR result to clipboard
     if clipboard_available:
         try:
-            pyperclip.copy(full_text.strip())
+            pyperclip.copy(full_text.strip()) # type: ignore
         except Exception as e:
             messagebox.showwarning("Clipboard Error", f"Failed to copy to clipboard:\n{e}")
 
@@ -138,6 +135,20 @@ def upload_images():
     file_paths = filedialog.askopenfilenames(filetypes=[("Image Files","*.png *.jpg *.jpeg *.bmp *.tiff *.tif")])
     if file_paths:
         threading.Thread(target=process_files, args=(file_paths,)).start()
+
+# ---------- Step 3: Real-time Screenshot OCR ----------
+def capture_screenshot():
+    status_var.set("Capturing screenshot...")
+    root.update_idletasks()
+    screenshot = ImageGrab.grab()
+    temp_file = "temp_screenshot.png"
+    screenshot.save(temp_file)
+    process_files([temp_file])
+    try:
+        os.remove(temp_file)
+    except:
+        pass
+    status_var.set("Screenshot OCR completed!")
 
 # ---------- Drag & Drop ----------
 def drop(event):
@@ -198,15 +209,20 @@ btn_upload = tk.Button(top_bar, text="Select Images", command=upload_images,
                        activebackground="#e0e0e0", relief="raised", bd=2)
 btn_upload.grid(row=0, column=0, padx=6)
 
+btn_screenshot = tk.Button(top_bar, text="Capture Screenshot", command=capture_screenshot,
+                           width=18, bg="white", fg="black", font=btn_font,
+                           activebackground="#e0e0e0", relief="raised", bd=2)
+btn_screenshot.grid(row=0, column=1, padx=6)
+
 btn_save_txt = tk.Button(top_bar, text="Save as .txt", command=save_text,
                          width=18, bg="white", fg="black", font=btn_font,
                          activebackground="#e0e0e0", relief="raised", bd=2)
-btn_save_txt.grid(row=0, column=1, padx=6)
+btn_save_txt.grid(row=0, column=2, padx=6)
 
 btn_save_pdf = tk.Button(top_bar, text="Save as .pdf", command=save_pdf,
                          width=18, bg="white", fg="black", font=btn_font,
                          activebackground="#e0e0e0", relief="raised", bd=2)
-btn_save_pdf.grid(row=0, column=2, padx=6)
+btn_save_pdf.grid(row=0, column=3, padx=6)
 
 # ---------- Run GUI ----------
 root.mainloop()
