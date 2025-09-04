@@ -29,7 +29,7 @@ Supports both **terminal** and **drag & drop GUI** versions with **enhanced text
 
 1. Clone this repo:
 ```bash
-git clone https://github.com/your-username/snaptext.git
+git clone https://github.com/inferno67/snaptext.git
 cd snaptext
 ```
 Install Python dependencies:
