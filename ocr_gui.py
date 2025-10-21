@@ -1,40 +1,70 @@
+#!/usr/bin/env python3
+import os
+import sys
+import threading
+import json
+import tempfile
+import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from PIL import Image, ImageGrab
+from PIL import Image, ImageGrab, UnidentifiedImageError
 import pytesseract
 import cv2
 import numpy as np
-import os
 from fpdf import FPDF
-import threading
-import json
 
 # Optional libraries
 try:
     import pyperclip
     clipboard_available = True
-except ImportError:
+except Exception:
+    pyperclip = None
     clipboard_available = False
 
 try:
     import mss
-except ImportError:
+    import mss.tools
+except Exception:
     mss = None
 
 try:
     import keyboard
-except ImportError:
+except Exception:
     keyboard = None
 
 # ---------- Tesseract Path ----------
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# If user is on Windows and has tesseract in the default install location, keep it.
+# If TESSERACT_CMD env var exists, use it. Otherwise assume tesseract is in PATH.
+if "TESSERACT_CMD" in os.environ:
+    pytesseract.pytesseract.tesseract_cmd = os.environ["TESSERACT_CMD"]
+else:
+    if sys.platform.startswith("win"):
+        default_win_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        if os.path.exists(default_win_path):
+            pytesseract.pytesseract.tesseract_cmd = default_win_path
+        # else rely on PATH (user must have tesseract on PATH)
+    # On Linux/Mac we typically rely on system tesseract in PATH
 
 # ---------- Main Window ----------
 root = tk.Tk()
 root.title("SnapText Ultimate OCR")
 root.geometry("1000x650")
-root.state('zoomed')
 root.configure(bg="#121212")
+
+# Cross-platform "maximized" / fullscreen fallback
+def maximize_window(win):
+    try:
+        win.state('zoomed')  # windows
+    except tk.TclError:
+        try:
+            win.attributes('-zoomed', True)  # some linux
+        except tk.TclError:
+            try:
+                win.attributes('-fullscreen', True)  # fallback
+            except tk.TclError:
+                pass
+
+maximize_window(root)
 
 # ---------- Text Box ----------
 text_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, font=("Arial", 12),
@@ -52,7 +82,8 @@ history_box.pack(fill="x", padx=15, pady=(0,10))
 def add_to_history(text):
     global ocr_history
     ocr_history.append(text)
-    history_box.insert(tk.END, f"{len(ocr_history)}. {text[:100]}...\n")
+    display = (text[:120] + "...") if len(text) > 120 else text
+    history_box.insert(tk.END, f"{len(ocr_history)}. {display}\n")
     history_box.yview(tk.END)
 
 # ---------- Status & Progress ----------
@@ -109,30 +140,55 @@ for i, opt in enumerate(pre_options):
     pre_vars[opt] = var
 
 # ---------- Load/Save Preprocessing Presets ----------
-PRESET_FILE = "preprocessing_presets.json"
+PRESET_FILE = os.path.join(os.path.expanduser("~"), ".snaptext_presets.json")
 
 def save_presets():
-    data = {k: v.get() for k,v in pre_vars.items()}
-    with open(PRESET_FILE, "w") as f:
-        json.dump(data, f)
-    messagebox.showinfo("Saved", "Preprocessing preset saved!")
+    data = {k: bool(v.get()) for k,v in pre_vars.items()}
+    try:
+        with open(PRESET_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        messagebox.showinfo("Saved", "Preprocessing preset saved!")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to save preset:\n{e}")
 
 def load_presets():
     if os.path.exists(PRESET_FILE):
-        with open(PRESET_FILE, "r") as f:
-            data = json.load(f)
-        for k,v in pre_vars.items():
-            if k in data:
-                v.set(data[k])
-        messagebox.showinfo("Loaded", "Preprocessing preset loaded!")
+        try:
+            with open(PRESET_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for k,v in pre_vars.items():
+                if k in data:
+                    v.set(bool(data[k]))
+            messagebox.showinfo("Loaded", "Preprocessing preset loaded!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load preset:\n{e}")
+    else:
+        messagebox.showinfo("No Preset", "No preset file found.")
+
+# ---------- Helpers ----------
+_temp_dir = tempfile.mkdtemp(prefix="snaptext_")
+def _get_temp_file(suffix=".png"):
+    return os.path.join(_temp_dir, f"temp_{threading.get_ident()}{suffix}")
+
+def _cleanup_temp_dir():
+    try:
+        shutil.rmtree(_temp_dir)
+    except Exception:
+        pass
 
 # ---------- OCR Function ----------
 def run_ocr(image_path):
     if not os.path.exists(image_path):
         return "❌ File not found!"
+    # read with OpenCV
     img = cv2.imread(image_path)
     if img is None:
-        return "❌ Unable to read image!"
+        # try pillow fallback
+        try:
+            pil = Image.open(image_path).convert("RGB")
+            img = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+        except Exception:
+            return "❌ Unable to read image!"
 
     h, w = img.shape[:2]
     if w < 1200:
@@ -140,22 +196,31 @@ def run_ocr(image_path):
         img = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_LINEAR)
 
     gray = img.copy()
-    if pre_vars["Grayscale"].get():
-        gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
-    if pre_vars["CLAHE"].get():
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        gray = clahe.apply(gray)
-    if pre_vars["Noise Removal"].get():
-        gray = cv2.medianBlur(gray, 3)
-    if pre_vars["Sharpening"].get():
-        kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
-        gray = cv2.filter2D(gray, -1, kernel)
-    if pre_vars["Adaptive Thresholding"].get():
-        gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                     cv2.THRESH_BINARY, 11, 2)
+    try:
+        if pre_vars["Grayscale"].get():
+            gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+        if pre_vars["CLAHE"].get():
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            gray = clahe.apply(gray)
+        if pre_vars["Noise Removal"].get():
+            gray = cv2.medianBlur(gray, 3)
+        if pre_vars["Sharpening"].get():
+            kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
+            gray = cv2.filter2D(gray, -1, kernel)
+        if pre_vars["Adaptive Thresholding"].get():
+            if len(gray.shape) == 3:
+                gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+            gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                         cv2.THRESH_BINARY, 11, 2)
+    except Exception as e:
+        # If preprocessing fails, continue with original image
+        print("Preprocessing error:", e)
 
-    temp_file = "temp_snaptext_ocr.png"
-    cv2.imwrite(temp_file, gray)
+    temp_file = _get_temp_file(".png")
+    try:
+        cv2.imwrite(temp_file, gray)
+    except Exception as e:
+        return f"❌ Failed to write temp file: {e}"
 
     try:
         lang_codes = '+'.join([LANGUAGES[l] for l in selected_langs]) if selected_langs else 'eng'
@@ -166,79 +231,121 @@ def run_ocr(image_path):
     finally:
         try:
             os.remove(temp_file)
-        except:
+        except Exception:
             pass
     return text.strip()
 
-# ---------- Multi-Image OCR ----------
-def process_files(file_paths):
-    full_text = ""
-    total = len(file_paths)
-    progress["maximum"] = total
-    for i, file_path in enumerate(file_paths, start=1):
-        status_var.set(f"Processing {i}/{total}: {os.path.basename(file_path)}")
-        root.update_idletasks()
-        full_text += run_ocr(file_path) + "\n\n"
+# ---------- Multi-File OCR Pipeline ----------
+def _process_files_thread(file_paths):
+    try:
+        full_text = ""
+        total = len(file_paths)
+        progress["maximum"] = total
+        for i, file_path in enumerate(file_paths, start=1):
+            status_var.set(f"Processing {i}/{total}: {os.path.basename(file_path)}")
+            root.update_idletasks()
+            txt = run_ocr(file_path)
+            full_text += txt + "\n\n"
+            progress["value"] = i
+        text_box.delete(1.0, tk.END)
+        text_box.insert(tk.END, full_text.strip())
+        add_to_history(full_text.strip())
+        if clipboard_available and full_text.strip():
+            try:
+                pyperclip.copy(full_text.strip())  # type: ignore
+                status_var.set("OCR completed! (copied to clipboard)")
+            except Exception:
+                status_var.set("OCR completed!")
+        else:
+            status_var.set("OCR completed!")
+    except Exception as e:
+        messagebox.showerror("Error", f"Processing failed:\n{e}")
+        status_var.set("Ready")
+    finally:
+        progress["value"] = 0
+        # re-enable buttons if you choose to disable them in upload_images
 
-    text_box.delete(1.0, tk.END)
-    text_box.insert(tk.END, full_text.strip())
-
-    add_to_history(full_text.strip())
-
-    if clipboard_available:
-        try:
-            pyperclip.copy(full_text.strip()) # type: ignore
-        except:
-            pass
-
-    status_var.set("OCR completed!")
-    progress["value"] = 0
+def process_files_async(file_paths):
+    threading.Thread(target=_process_files_thread, args=(file_paths,), daemon=True).start()
 
 def upload_images():
-    file_paths = filedialog.askopenfilenames(filetypes=[("Image Files","*.png *.jpg *.jpeg *.bmp *.tiff *.tif")])
+    file_paths = filedialog.askopenfilenames(filetypes=[("Image Files","*.png *.jpg *.jpeg *.bmp *.tiff *.tif"), ("PDF","*.pdf")])
     if file_paths:
-        threading.Thread(target=process_files, args=(file_paths,)).start()
+        # If any PDF selected, convert pages to images
+        expanded_paths = []
+        for p in file_paths:
+            if p.lower().endswith(".pdf"):
+                try:
+                    from pdf2image import convert_from_path
+                    pages = convert_from_path(p)
+                    for idx, pg in enumerate(pages):
+                        tmp = _get_temp_file(f"_pdfpage_{idx}.png")
+                        pg.save(tmp, "PNG")
+                        expanded_paths.append(tmp)
+                except Exception as e:
+                    messagebox.showerror("PDF Error", f"Failed to convert PDF {os.path.basename(p)}:\n{e}")
+            else:
+                expanded_paths.append(p)
+        if expanded_paths:
+            process_files_async(expanded_paths)
 
 # ---------- Screenshot OCR ----------
 def capture_screenshot():
     status_var.set("Capturing screenshot...")
     root.update_idletasks()
-    screenshot = ImageGrab.grab()
-    temp_file = "temp_screenshot.png"
-    screenshot.save(temp_file)
-    process_files([temp_file])
+    temp_file = _get_temp_file(".png")
     try:
-        os.remove(temp_file)
-    except:
-        pass
-    status_var.set("Screenshot OCR completed!")
+        # Try PIL ImageGrab (works on Windows and macOS)
+        try:
+            img = ImageGrab.grab()
+            img.save(temp_file)
+        except (OSError, ValueError, UnidentifiedImageError):
+            # Fallback to mss on linux or as a more robust method
+            if mss is None:
+                messagebox.showerror("Screenshot Error", "Automatic screenshot not available (mss not installed).")
+                status_var.set("Ready")
+                return
+            with mss.mss() as sct:
+                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                sct_img = sct.grab(monitor)
+                mss.tools.to_png(sct_img.rgb, sct_img.size, output=temp_file)
+        process_files_async([temp_file])
+    except Exception as e:
+        messagebox.showerror("Screenshot Error", f"Failed to capture screenshot:\n{e}")
+        status_var.set("Ready")
 
 # ---------- Partial Screen OCR ----------
 def partial_ocr():
     if mss is None:
-        messagebox.showwarning("Warning", "mss library not installed!")
+        messagebox.showwarning("Warning", "Partial OCR requires 'mss' library. Install it or use full-screen screenshot.")
         return
-    with mss.mss() as sct:
-        bbox = sct.monitors[1]  # full screen; user can adjust
-        img = np.array(sct.grab(bbox))
-        temp_file = "temp_partial.png"
-        cv2.imwrite(temp_file, cv2.cvtColor(img, cv2.COLOR_RGBA2BGR))
-    process_files([temp_file])
+    status_var.set("Capturing partial screen (full monitor used by default)...")
+    root.update_idletasks()
     try:
-        os.remove(temp_file)
-    except:
-        pass
+        with mss.mss() as sct:
+            monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+            img = sct.grab(monitor)
+            temp_file = _get_temp_file(".png")
+            mss.tools.to_png(img.rgb, img.size, output=temp_file)
+        process_files_async([temp_file])
+    except Exception as e:
+        messagebox.showerror("Partial OCR Error", f"{e}")
+        status_var.set("Ready")
 
 # ---------- Drag & Drop ----------
 def drop(event):
-    files = root.tk.splitlist(event.data)
-    threading.Thread(target=process_files, args=(files,)).start()
+    try:
+        files = root.tk.splitlist(event.data)
+        process_files_async(files)
+    except Exception as e:
+        print("Drop error:", e)
 
 try:
     import tkinterdnd2 as tkdnd
-    text_box.drop_target_register(tkdnd.DND_FILES) # type: ignore
-    text_box.dnd_bind('<<Drop>>', drop) # type: ignore
-except:
+    # register drop on the text box (if tkdnd is installed)
+    text_box.drop_target_register(tkdnd.DND_FILES)  # type: ignore
+    text_box.dnd_bind('<<Drop>>', drop)  # type: ignore
+except Exception:
     pass
 
 # ---------- Save Functions ----------
@@ -249,9 +356,12 @@ def save_text():
         return
     save_path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text files","*.txt")])
     if save_path:
-        with open(save_path, "w", encoding="utf-8") as f:
-            f.write(text)
-        messagebox.showinfo("Saved", f"Text saved to {save_path}")
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            messagebox.showinfo("Saved", f"Text saved to {save_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save:\n{e}")
 
 def save_pdf():
     text = text_box.get(1.0, tk.END).strip()
@@ -265,8 +375,9 @@ def save_pdf():
         pdf = FPDF()
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
+        # FPDF default fonts: "Arial" is available by default; this should work cross-platform
         pdf.set_font("Arial", size=12)
-        safe_text = text.encode("latin-1", "replace").decode("latin-1")
+        safe_text = text.replace("\t", "    ")
         for para in safe_text.splitlines():
             if para.strip() == "":
                 pdf.ln(5)
@@ -285,7 +396,7 @@ btn_font = ("Helvetica", 11, "bold")
 btn_bg, btn_fg = "white", "black"
 
 buttons = [
-    ("Select Images", upload_images),
+    ("Select Images / PDFs", upload_images),
     ("Save as .txt", save_text),
     ("Save as .pdf", save_pdf),
     ("Screenshot OCR", capture_screenshot),
@@ -301,9 +412,27 @@ for i, (text, func) in enumerate(buttons):
 
 # ---------- Global Hotkey for Screenshot OCR ----------
 if keyboard:
-    def hotkey_screenshot():
-        capture_screenshot()
-    threading.Thread(target=lambda: keyboard.add_hotkey("ctrl+shift+s", hotkey_screenshot)).start() # type: ignore
+    try:
+        def hotkey_screenshot():
+            capture_screenshot()
+        # run the hotkey listener in a daemon thread
+        threading.Thread(target=lambda: keyboard.add_hotkey("ctrl+shift+s", hotkey_screenshot), daemon=True).start()
+    except Exception as e:
+        print("Hotkey setup failed:", e)
+
+# ---------- Clean up temp dir on exit ----------
+def on_exit():
+    try:
+        _cleanup_temp_dir()
+    except:
+        pass
+    root.destroy()
+
+root.protocol("WM_DELETE_WINDOW", on_exit)
 
 # ---------- Run GUI ----------
-root.mainloop()
+if __name__ == "__main__":
+    try:
+        root.mainloop()
+    finally:
+        _cleanup_temp_dir()
