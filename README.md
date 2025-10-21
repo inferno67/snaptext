@@ -127,4 +127,4 @@ The standalone .exe version works on Windows without Python, but still requires 
 
 [Join my Discord server](https://discord.gg/SqyFzxZdjH)
 
-Email: iaminferno67@gmail.com
+iaminferno@gmail.com
